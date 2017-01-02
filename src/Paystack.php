@@ -115,6 +115,15 @@ class Paystack
     }
 
     /**
+     * Convenience method to get Authorization URL and redirect there
+     * @param PaystackTransaction|null $paystackTransaction
+     */
+    public function initializePayment($paystackTransaction = null) {
+        return $this->getAuthorizationUrl($paystackTransaction)
+            ->redirectNow();
+    }
+
+    /**
      * Initiate a payment request to Paystack
      * @param PaystackTransaction|null $paystackTransaction
      * @return Paystack
