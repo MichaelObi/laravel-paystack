@@ -66,14 +66,6 @@ class Paystack
     }
 
     /**
-     * Get Base Url from Paystack config file
-     */
-    public function setBaseUrl()
-    {
-        $this->baseUrl = Config::get('paystack.paymentUrl');
-    }
-
-    /**
      * Get secret key from Paystack config file
      */
     public function setKey()
@@ -82,53 +74,80 @@ class Paystack
     }
 
     /**
+     * Get Base Url from Paystack config file
+     */
+    public function setBaseUrl()
+    {
+        $this->baseUrl = Config::get('paystack.paymentUrl');
+    }
+
+    /**
      * Set options for making the Client request
      */
     private function setRequestOptions()
     {
-        $authBearer = 'Bearer '. $this->secretKey;
+        $authBearer = 'Bearer ' . $this->secretKey;
 
         $this->client = new Client(
             [
                 'base_uri' => $this->baseUrl,
                 'headers' => [
                     'Authorization' => $authBearer,
-                    'Content-Type'  => 'application/json',
-                    'Accept'        => 'application/json'
+                    'Content-Type' => 'application/json',
+                    'Accept' => 'application/json'
                 ]
             ]
         );
     }
 
     /**
-     * Initiate a payment request to Paystack
+     * Get the authorization url from the callback response
+     * @param PaystackTransaction|null $paystackTransaction
      * @return Paystack
      */
-    public function makePaymentRequest()
+    public function getAuthorizationUrl($paystackTransaction = null)
     {
-        $data = [
-            "amount" => intval(request()->amount),
-            "reference" => request()->reference,
-            "email" => request()->email,
-            "plan" => request()->plan,
-            "first_name" => request()->first_name,
-            "last_name" => request()->last_name,
-            "callback_url" => request()->callback_url,
-            /*
-            * to allow use of metadata on Paystack dashboard and a means to return additional data back to redirect url
-            * form need an input field: <input type="hidden" name="metadata" value="{{ json_encode($array) }}" >
-            *array must be set up as: $array = [ 'custom_fields' => [
-            *                                                            ['display_name' => "Cart Id", "variable_name" => "cart_id", "value" => "2"],
-            *                                                            ['display_name' => "Sex", "variable_name" => "sex", "value" => "female"],
-            *                                                            .
-            *                                                            .
-            *                                                            .
-            *                                                        ]
-            *                                        
-            *                                  ]
-            */
-            'metadata' => request()->metadata 
-        ];
+        $this->makePaymentRequest($paystackTransaction);
+
+        $this->url = $this->getResponse()['data']['authorization_url'];
+
+        return $this;
+    }
+
+    /**
+     * Initiate a payment request to Paystack
+     * @param PaystackTransaction|null $paystackTransaction
+     * @return Paystack
+     */
+    public function makePaymentRequest($paystackTransaction = null)
+    {
+        if ($paystackTransaction instanceof PaystackTransaction) {
+            $data = $paystackTransaction->toArray();
+        } else {
+            $data = [
+                "amount" => intval(request()->amount),
+                "reference" => request()->reference,
+                "email" => request()->email,
+                "plan" => request()->plan,
+                "first_name" => request()->first_name,
+                "last_name" => request()->last_name,
+                "callback_url" => request()->callback_url,
+                /*
+                * to allow use of metadata on Paystack dashboard and a means to return additional data back to redirect url
+                * form need an input field: <input type="hidden" name="metadata" value="{{ json_encode($array) }}" >
+                *array must be set up as: $array = [ 'custom_fields' => [
+                *                                                            ['display_name' => "Cart Id", "variable_name" => "cart_id", "value" => "2"],
+                *                                                            ['display_name' => "Sex", "variable_name" => "sex", "value" => "female"],
+                *                                                            .
+                *                                                            .
+                *                                                            .
+                *                                                        ]
+                *
+                *                                  ]
+                */
+                'metadata' => request()->metadata
+            ];
+        }
 
         // Remove the fields which were not sent (value would be null)
         array_filter($data);
@@ -137,7 +156,6 @@ class Paystack
 
         return $this;
     }
-
 
     /**
      * @param string $relativeUrl
@@ -161,28 +179,26 @@ class Paystack
     }
 
     /**
-     * Get the authorization url from the callback response
-     * @return Paystack
+     * Get the whole response from a get operation
+     * @return array
      */
-    public function getAuthorizationUrl()
+    private function getResponse()
     {
-        $this->makePaymentRequest();
-
-        $this->url = $this->getResponse()['data']['authorization_url'];
-
-        return $this;
+        return json_decode($this->response->getBody(), true);
     }
 
     /**
-     * Hit Paystack Gateway to Verify that the transaction is valid
+     * Get Payment details if the transaction was verified successfully
+     * @return json
+     * @throws PaymentVerificationFailedException
      */
-    private function verifyTransactionAtGateway()
+    public function getPaymentData()
     {
-        $transactionRef = request()->query('trxref');
-
-        $relativeUrl = "/transaction/verify/{$transactionRef}";
-
-        $this->response = $this->client->get($this->baseUrl . $relativeUrl, []);
+        if ($this->isTransactionVerificationValid()) {
+            return $this->getResponse();
+        } else {
+            throw new PaymentVerificationFailedException("Invalid Transaction Reference");
+        }
     }
 
     /**
@@ -211,17 +227,15 @@ class Paystack
     }
 
     /**
-     * Get Payment details if the transaction was verified successfully
-     * @return json
-     * @throws PaymentVerificationFailedException
+     * Hit Paystack Gateway to Verify that the transaction is valid
      */
-    public function getPaymentData()
+    private function verifyTransactionAtGateway()
     {
-        if ($this->isTransactionVerificationValid()) {
-            return $this->getResponse();
-        } else {
-            throw new PaymentVerificationFailedException("Invalid Transaction Reference");
-        }
+        $transactionRef = request()->query('trxref');
+
+        $relativeUrl = "/transaction/verify/{$transactionRef}";
+
+        $this->response = $this->client->get($this->baseUrl . $relativeUrl, []);
     }
 
     /**
@@ -262,6 +276,15 @@ class Paystack
     }
 
     /**
+     * Get the data response from a get operation
+     * @return array
+     */
+    private function getData()
+    {
+        return $this->getResponse()['data'];
+    }
+
+    /**
      * Get all the plans that you have on Paystack
      * @return array
      */
@@ -281,24 +304,6 @@ class Paystack
         $this->setRequestOptions();
 
         return $this->setHttpResponse("/transaction", 'GET', [])->getData();
-    }
-
-    /**
-     * Get the whole response from a get operation
-     * @return array
-     */
-    private function getResponse()
-    {
-        return json_decode($this->response->getBody(), true);
-    }
-
-    /**
-     * Get the data response from a get operation
-     * @return array
-     */
-    private function getData()
-    {
-        return $this->getResponse()['data'];
     }
 
     /**
@@ -380,7 +385,7 @@ class Paystack
     public function fetchCustomer($customer_id)
     {
         $this->setRequestOptions();
-        return $this->setHttpResponse('/customer/'. $customer_id, 'GET', [])->getResponse();
+        return $this->setHttpResponse('/customer/' . $customer_id, 'GET', [])->getResponse();
     }
 
     /**
@@ -400,7 +405,7 @@ class Paystack
         ];
 
         $this->setRequestOptions();
-        return $this->setHttpResponse('/customer/'. $customer_id, 'PUT', $data)->getResponse();
+        return $this->setHttpResponse('/customer/' . $customer_id, 'PUT', $data)->getResponse();
     }
 
     /**
@@ -472,7 +477,7 @@ class Paystack
     public function fetchSubscription($subscription_id)
     {
         $this->setRequestOptions();
-        return $this->setHttpResponse('/subscription/'.$subscription_id, 'GET', [])->getResponse();
+        return $this->setHttpResponse('/subscription/' . $subscription_id, 'GET', [])->getResponse();
     }
 
     /**
@@ -508,7 +513,7 @@ class Paystack
     public function fetchPage($page_id)
     {
         $this->setRequestOptions();
-        return $this->setHttpResponse('/page/'.$page_id, 'GET', [])->getResponse();
+        return $this->setHttpResponse('/page/' . $page_id, 'GET', [])->getResponse();
     }
 
     /**
@@ -525,6 +530,6 @@ class Paystack
         ];
 
         $this->setRequestOptions();
-        return $this->setHttpResponse('/page/'.$page_id, 'PUT', $data)->getResponse();
+        return $this->setHttpResponse('/page/' . $page_id, 'PUT', $data)->getResponse();
     }
 }
