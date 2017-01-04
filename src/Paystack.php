@@ -102,12 +102,12 @@ class Paystack
 
     /**
      * Get the authorization url from the callback response
-     * @param PaystackTransaction|null $paystackTransaction
+     * @param array $data
      * @return Paystack
      */
-    public function getAuthorizationUrl($paystackTransaction = null)
+    public function getAuthorizationUrl(array $data = null)
     {
-        $this->makePaymentRequest($paystackTransaction);
+        $this->makePaymentRequest($data);
 
         $this->url = $this->getResponse()['data']['authorization_url'];
 
@@ -116,23 +116,22 @@ class Paystack
 
     /**
      * Convenience method to get Authorization URL and redirect there
-     * @param PaystackTransaction|null $paystackTransaction
+     * @param array $data
+     * @return
      */
-    public function initializePayment($paystackTransaction = null) {
-        return $this->getAuthorizationUrl($paystackTransaction)
+    public function initializePayment(array $data = null) {
+        return $this->getAuthorizationUrl($data)
             ->redirectNow();
     }
 
     /**
      * Initiate a payment request to Paystack
-     * @param PaystackTransaction|null $paystackTransaction
+     * @param array $data
      * @return Paystack
      */
-    public function makePaymentRequest($paystackTransaction = null)
+    public function makePaymentRequest(array $data = null)
     {
-        if ($paystackTransaction instanceof PaystackTransaction) {
-            $data = $paystackTransaction->toArray();
-        } else {
+        if ($data == null){
             $data = [
                 "amount" => intval(request()->amount),
                 "reference" => request()->reference,
